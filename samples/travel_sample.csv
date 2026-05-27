@@ -1,0 +1,23 @@
+trip_id,employee_id,trip_type,origin,destination,departure_date,arrival_date,checkin_date,checkout_date,nights,distance_km,cabin_class,mode,city,hotel_name
+T-2024-0001,EMP-0042,flight,LHR,JFK,2024-01-15,2024-01-15,,,,,economy,,,
+T-2024-0001,EMP-0042,hotel,,,,,2024-01-15,2024-01-18,3,,,,New York,Marriott Times Square
+T-2024-0001,EMP-0042,ground,,,2024-01-15,,,,,28,,taxi,New York,
+T-2024-0001,EMP-0042,flight,JFK,LHR,2024-01-18,2024-01-18,,,,,economy,,,
+T-2024-0001,EMP-0042,ground,,,2024-01-18,,,,,42,,taxi,London,
+T-2024-0002,EMP-0117,flight,LHR,DXB,2024-01-22,2024-01-22,,,,,business,,,
+T-2024-0002,EMP-0117,hotel,,,,,2024-01-22,2024-01-26,4,,,,Dubai,Atlantis The Palm
+T-2024-0002,EMP-0117,flight,DXB,LHR,2024-01-26,2024-01-26,,,,,business,,,
+T-2024-0003,EMP-0089,flight,LHR,SIN,2024-02-04,2024-02-05,,,,10841,economy,,,
+T-2024-0003,EMP-0089,flight,SIN,BOM,2024-02-06,2024-02-06,,,,,economy,,,
+T-2024-0003,EMP-0089,flight,BOM,LHR,2024-02-08,2024-02-08,,,,,premium_economy,,,
+T-2024-0003,EMP-0089,hotel,,,,,2024-02-05,2024-02-06,1,,,,Singapore,Marina Bay Sands
+T-2024-0003,EMP-0089,hotel,,,,,2024-02-06,2024-02-08,2,,,,Mumbai,Taj Mahal Palace
+T-2024-0004,EMP-0203,flight,BHX,AMS,2024-02-12,2024-02-12,,,,,economy,,,
+T-2024-0004,EMP-0203,flight,AMS,BHX,2024-02-14,2024-02-14,,,,,economy,,,
+T-2024-0005,EMP-0311,ground,,,2024-02-15,,,,,212,,rail,Manchester,
+T-2024-0005,EMP-0311,ground,,,2024-02-16,,,,,212,,rail,Manchester,
+T-2024-0006,EMP-0456,flight,LHR,ZZZ,2024-02-20,2024-02-20,,,,,economy,,,
+T-2024-0007,EMP-0512,ground,,,2024-02-22,,,,,,,taxi,Birmingham,
+T-2024-0008,EMP-0078,flight,LHR,CDG,2024-03-01,2024-03-01,,,,,economy,,,
+T-2024-0008,EMP-0078,flight,CDG,LHR,2024-03-03,2024-03-03,,,,,economy,,,
+T-2024-0008,EMP-0078,hotel,,,,,2024-03-01,2024-03-03,2,,,,Paris,Hotel Lutetia

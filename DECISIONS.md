@@ -1,112 +1,63 @@
-# DECISIONS.md — Every ambiguity resolved
+# DECISIONS.md
+
+A running log of the ambiguities the assignment left open and how I resolved them. For each source I picked one ingestion mode and a subset of the messy real world to handle; the rest is documented as known omissions in TRADEOFFS.md.
 
 ## SAP
 
-**Format chosen: MB51-style flat CSV (not IDoc, not OData, not BAPI)**
+I went with the flat MB51-style CSV export rather than IDoc, OData, or BAPI. The reasoning is mostly about who actually generates the file. Sustainability teams do not have programmatic SAP access. They open MB51 (the Material Documents List), filter by plant and date, and hit "export to spreadsheet" from the standard ALV grid. That CSV is what lands in their email. IDoc is a system-to-system EDI format and no sustainability lead ever forwards one of those. OData needs a licensed Fiori Gateway plus OAuth, which a prototype cannot assume, and BAPI is direct RFC, which is not a web-app concern. So the realistic shape is a CSV that came out of MB51, and that is what the parser handles.
 
-SAP offers four export mechanisms. I chose flat CSV because:
-- Sustainability teams do not have programmatic SAP access; they run MB51 (Material Documents List) and export to Excel/CSV via the standard ALV grid export. This is the actual workflow at most enterprise clients.
-- IDoc is a message-based EDI format used for system-to-system integration; no sustainability team hands these to an ESG platform.
-- OData would require a licensed SAP Fiori Gateway and OAuth credentials; unrealistic for a prototype and uncommon in sustainability reporting contexts.
-- BAPI requires direct RFC connectivity; outside scope for a web-based ingestion tool.
+The assignment scope was "fuel and procurement", but I deliberately built fuel only. Fuel is Scope 1, the math is litres times an emission factor, and the data quality bar is reachable. Procurement maps to Scope 3 Category 1, which needs a supplier emissions database, a spend-based vs. activity-based factor choice with a 3-10x outcome spread, and a different parser shape entirely (PO → GR → IR). It is a separate product feature, not an extension of fuel ingestion. TRADEOFFS.md #1 walks through this.
 
-**Scope: fuel movements only (not procurement POs)**
+For movement types I accept the codes that mean "fuel left inventory and was consumed": 261 and 262 for goods issue/return to production orders, 201/202 for cost-centre issues, 551/552 for scrapping. Movement types that mean "fuel arrived" (101) or "fuel moved" (311) are excluded with a parse-error row so the analyst can see what was skipped and why.
 
-The assignment says "fuel and procurement." I chose fuel only because:
-- Fuel = Scope 1 (direct emissions). Straightforward: litres × emission factor.
-- Procurement from SAP = Scope 3 Category 1 (purchased goods and services). This requires spend-based or activity-based emission factors per material/vendor category, a supplier emissions database, and significant data quality assumptions. This is a separate product feature, not an extension of fuel ingestion.
-- I document this omission explicitly in TRADEOFFS.md.
+German column headers are normal in DE/AT/CH installations, so the parser aliases `Buchungsdatum` → `posting_date`, `Menge` → `quantity`, `Werk` → `plant`, and so on. The full alias table is in `backend/ingestion/parsers.py`. Unmapped headers fall through with their original name lowercased rather than dropped, so nothing disappears silently.
 
-**Movement types: 261/262 (goods issue/return), 201/202, 551/552**
+Things I would push back to the PM:
 
-Movement type 261 = goods issue to production order (most common fuel consumption posting). 262 = reversal. 201/202 = goods issue/return for cost center. 551/552 = scrapping. All indicate fuel leaving inventory for consumption. Movement types like 101 (goods receipt) or 311 (stock transfer) are excluded — they represent fuel arriving or moving, not being consumed.
-
-**German headers: mapped to English**
-
-SAP installations in Germany, Austria, Switzerland ship German column headers by default. The parser maps `Buchungsdatum` → `posting_date`, `Menge` → `quantity`, etc. Any unmapped header falls through with its original name lowercased.
-
-**What I'd ask the PM:**
-- Do clients have a standard plant code → facility mapping they maintain, or should we build a UI for it?
-- Are there SAP instances where fuel is tracked in energy units (GJ, MWh) rather than volume? Our sample uses litres and cubic metres.
-- Should we handle goods receipts (incoming fuel) to compute inventory-based consumption rather than direct goods issues?
-
----
+- Do clients maintain a plant-code → facility mapping themselves, or do we own the onboarding for it? Right now I seed the demo mapping and the analyst can edit it from a Settings page, but a real client would deliver dozens of plant codes on day one.
+- Are there installations where fuel is tracked in energy units (GJ, MWh) instead of litres or cubic metres? The unit normalizer handles L/GAL/M3/CBM/KG today; energy units would need a different conversion path.
+- Should goods receipts (101) feed inventory-based consumption instead of relying on direct goods issues? Some clients prefer the inventory diff method.
 
 ## Utility electricity
 
-**Format chosen: portal CSV export (not PDF, not Green Button API)**
+The realistic format here is the portal CSV. PDF bills look tempting until you try to parse them: every utility ships a different layout, and even within a single utility the layout drifts between billing periods. A PDF pipeline either needs a custom parser per utility or a paid OCR service, and the maintenance load is awful. The Green Button (ESPI) XML standard is a US Department of Energy thing that some American utilities support and most non-US ones do not, so it is not a primary path for an international client base. Portal CSVs are what facilities teams actually download; ComEd, EDF, E.ON, and the UK suppliers all have a "download usage data" button that produces broadly similar files. Field names vary, so the parser uses a flexible header-alias map.
 
-- PDF parsing: structurally fragile. Every utility has a different bill layout. Even within one utility, layouts change between billing periods. PDF → structured data requires either a custom parser per utility or a paid OCR service. Not appropriate for a prototype and high maintenance in production.
-- Green Button / ESPI API: a US standard (OpenESB) supported by some but not all utilities. UK and European utilities generally do not support it. Not universal enough to build as the primary ingestion path.
-- Portal CSV: what facilities teams actually download. ComEd, EDF, E.ON, and most large utilities offer a "download usage data" CSV export from their account portal. The fields are consistent enough to normalize with flexible header matching.
+Billing periods are stored as the source reports them. A 29-day cycle starting January 3rd is just that, not "January". Squeezing it into a calendar month requires an allocation decision (do the two February days carry over? are they prorated?), and different analysts pick different conventions. I would rather keep the source dates intact and let the analyst and auditor allocate consciously. The `activity_start`/`activity_end` on every emission record mirrors the actual billing window.
 
-**Billing periods: stored as-is**
+Multi-meter support matters because real facilities are not single-meter sites. A factory might have a main supply meter, an HVAC sub-meter, and a lighting sub-meter. The parser keeps each row as its own emission record and tags the source meter in the `extra` JSON column. No aggregation happens at ingest time.
 
-A utility billing period might be Jan 3 → Feb 1 (29 days). Forcing this into "January" requires a decision about how to allocate the 2 days of February. Different analysts make different choices. I store `billing_period_start` + `billing_period_end` and let the analyst and auditor decide on temporal allocation. The emission record's `activity_start`/`activity_end` reflects the actual billing period.
+Things I would push back to the PM:
 
-**Multi-meter support**
-
-Real facilities have multiple meters (sub-meters per floor, separate meters for HVAC, lighting, production). The `meter_id` field in `extra` identifies which meter a record came from. Multiple meters in one upload are supported; records are created per row, not aggregated.
-
-**What I'd ask the PM:**
-- Do clients want market-based Scope 2 (requires REGO/EAC certificates per period)? Currently only location-based is implemented.
-- What happens when a meter reading is estimated rather than actual? Some utility CSVs include an "E/A" flag. Should estimated reads be auto-flagged?
-
----
+- Market-based Scope 2 (REGO/REC/GO certificates per period) is a fairly big add. Right now I only do location-based with DEFRA's UK grid factor. Worth scoping for v2.
+- Some CSVs include an estimated/actual flag per reading. Should estimated reads auto-flag for review? I lean yes, but it is an opinion.
 
 ## Corporate travel
 
-**Platform: Navan-style CSV export**
+I modeled on Navan's reporting export. Navan (formerly TripActions) is a large TMC and its CSV format separates flights, hotels, and ground transport cleanly into `trip_type` rows. That maps onto our three emission factor categories without a translation layer. Concur's expense export overlaps but mixes in non-travel expense categories that would need filtering. The OAuth API path (Concur v4) needs enterprise credentials I cannot reasonably ask the reviewer to provide, so the realistic surface is still a CSV.
 
-Navan (formerly TripActions) is a major corporate travel management platform. Their reporting export produces a CSV with one row per booking segment. Concur's expense export has a similar structure but includes more expense categories beyond travel. I modeled on Navan's travel report format because it cleanly separates flights, hotels, and ground transport into `trip_type` rows, which maps directly to different emission factor categories.
+Distance is the hard part. The parser tries three paths in order. If the row has `distance_km`, I trust the TMC's number. If it does not but both IATA codes are present, I compute the great-circle distance via Haversine and flag the record `estimated_distance` so the analyst knows. If neither is available I refuse to compute a number and create a parse error instead, because the alternative is a silently wrong CO2e.
 
-**Distance calculation**
+Great-circle distance under-counts because real flights follow airways and are 5-10% longer than the straight-line. DEFRA's per-km factors already bake in a 1.891x radiative-forcing uplift, which partially compensates. SOURCES.md is honest about this limitation.
 
-Priority order:
-1. Use provided `distance_km` if present (trust the platform's routing data)
-2. If `origin_iata` + `destination_iata` present: compute Haversine great-circle distance, flag `estimated_distance = true`
-3. If neither: flag for analyst review, do not create an EmissionRecord
+Cabin classes map to DEFRA 2023 long-haul economy/premium/business/first factors. If the source says `business` I pick the business factor, if it says `Y` or `coach` it lands on economy, and if the value is unrecognised I default to economy and flag. The fare-code map (`Y`, `M`, `J`, `F`, etc.) is there because Concur often ships single-letter fare classes instead of full names.
 
-Haversine gives great-circle distance, not actual routed flight distance. Real flights follow airways and are typically 5–10% longer than great-circle. Production would apply a standard uplift factor (DEFRA recommends a radiative forcing uplift of 1.891× the distance-based CO2 figure, which partially compensates). I document this limitation in SOURCES.md.
+Hotels use DEFRA's global average of 20.8 kgCO2e per room-night. A real platform would split this by country because a Mumbai hotel running on coal-heavy grid power emits more than a Norwegian one on hydro. SOURCES.md notes this as a known limitation.
 
-**Cabin class**
+Things I would push back to the PM:
 
-Maps to DEFRA 2023 emission factors:
-- Economy: 0.1530 kgCO2e/km/pax
-- Premium economy: 0.2297 kgCO2e/km/pax
-- Business: 0.4294 kgCO2e/km/pax
-- First: 0.5714 kgCO2e/km/pax
-
-Default to economy if not specified; flag if the value is unrecognized.
-
-**Hotel emission factor**
-
-DEFRA 2023 average: 20.8 kgCO2e per room-night. In production, this should be broken out by country/region (hotels in high-carbon-intensity grids emit more). I use the global average and note this in SOURCES.md.
-
-**What I'd ask the PM:**
-- Should we support per-country hotel emission factors, or is the global average acceptable for year 1?
-- Navan/Concur exports often include personal travel booked on the corporate platform. Should we filter by business purpose code, or is that the analyst's job?
-
----
+- Per-country hotel factors, or is the global average acceptable for year one?
+- TMC exports often include personal travel booked on a corporate account. Should we filter by business-purpose code or treat that as the analyst's job?
 
 ## Data model
 
-**Shared-DB multi-tenancy (not separate schemas)**
+I went with shared-database multi-tenancy. Every table has a `tenant_id` FK and every query filters on it at the ORM layer. Separate schemas per tenant would force schema-routing logic and per-tenant migrations, which is real production engineering and not something a four-day prototype needs. A production hardening pass would add Postgres Row-Level Security on top of the ORM-level filter, but the data isolation contract is already in place.
 
-Separate schemas would require dynamic schema routing and migration management per tenant. For a prototype with one tenant this is unnecessary overhead. `tenant_id` on every table, enforced at the ORM layer, is simpler and auditable.
+Rejected records stay in the database with `status='rejected'` rather than being deleted. Auditors care that a row arrived, was reviewed, and was deemed invalid; that is a different statement from "the row never existed". Deletion would discard exactly the trail an audit wants.
 
-**`rejected` status separate from deletion**
-
-A rejected record remains in the database with status=rejected. This preserves the audit trail: auditors need to know that certain rows arrived, were reviewed, and were determined to be invalid — not that rows simply never existed.
-
-**JSONField for `extra`**
-
-Source-specific fields (meter_id, movement_type, origin_iata) don't belong in the normalized schema — they'd require nullable columns for every field on every row regardless of source type. JSONField lets each source store its relevant context without bloating the table. Querying these fields is less efficient than normalized columns, but for audit/review purposes (not analytics), this is acceptable.
-
----
+Source-specific fields go in a JSONField called `extra`. Meter IDs, movement types, IATA codes, cabin classes, tariff codes; none of these belong on the normalized schema because most rows would have to leave most columns null. JSONField means each source carries its own context without bloating the table. Querying these fields is slower than a normalized column, but the access pattern is "show me the source data for this record I am reviewing", not analytics over millions of rows, so it is the right trade.
 
 ## Deployment
 
-**Railway over Render/Fly**
+Live on Render. The backend is a free Python web service running gunicorn against a Neon Postgres instance, and the frontend is a free Render static site that consumes the API over CORS. The Render free tier sleeps services after 15 minutes of idle, so the first request after a quiet period takes ~30-60 seconds; the frontend pings `/api/health/` every ten minutes from any open tab to keep the backend warm during a review session.
 
-Railway provides Django + Postgres as a single project with one environment variable for DATABASE_URL. No custom Dockerfile required. Render requires more configuration for static files. Fly.io requires Docker knowledge. Railway was fastest to a working deployment.
+I started on Railway and switched because Render's free Postgres limit forced an external DB (Neon) anyway, and at that point Render's Blueprint flow gave the cleanest single-file deploy. `render.yaml` at the repo root provisions both services; `DATABASE_URL` is a `sync: false` env var so the Neon connection string is not committed to git.

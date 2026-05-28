@@ -1,100 +1,99 @@
-# SOURCES.md — What I researched for each source
+# SOURCES.md
+
+Notes on what I read while building each of the three ingest paths, why the sample data looks the way it does, and what would actually break the first time a real client's file showed up.
 
 ## 1. SAP fuel movements
 
-### What I researched
+The transaction sustainability teams care about is **MB51 — Material Documents List**, which reports goods movements posted in SAP's Materials Management module. A few things shaped the parser:
 
-SAP's primary transaction for material document reporting is **MB51** (Material Documents List). It reports goods movements posted in Materials Management (MM). Key findings:
+The export mechanism is the standard ALV grid "export to spreadsheet" button. That is the workflow a sustainability lead actually runs — log into SAP GUI, open MB51, filter by plant and date range, hit export, attach the file to an email. Nothing about it is an API call.
 
-- **Export mechanism**: SAP's ALV (ABAP List Viewer) grid allows export to spreadsheet/CSV via the standard toolbar. This is the actual workflow for sustainability teams — they run MB51, filter by plant and date range, and export. No API access required.
-- **German headers**: Default SAP installations in German-speaking countries use German column names. `Buchungsdatum` (posting date), `Menge` (quantity), `Mengeneinheit` (unit of measure), `Werk` (plant), `Bewegungsart` (movement type). These are documented in SAP's standard field catalog.
-- **Movement types**: SAP uses numeric movement types to classify goods movements. Type 261 = goods issue to production order (primary consumption). 262 = reversal of 261. 201/202 = goods issue/return for cost center. A real dataset will contain dozens of movement types; the parser filters to fuel-relevant ones only.
-- **Units**: SAP stores quantities in the base unit of measure configured per material. Common fuel units: L (litres), GAL (gallons), M3 (cubic metres), KG (kilograms for LPG). The unit column contains SAP's internal unit code, which may differ from ISO units.
-- **Plant codes**: 4-character alphanumeric codes unique within a client's SAP system. `BHM1` might mean "Birmingham Factory #1" or might be meaningless without a client-provided mapping table.
-- **Dates**: Two date fields common in MB51: `Buchungsdatum` (posting date = when the goods movement was entered in SAP) and `Belegdatum` (document date = date on the physical delivery note). For emissions reporting, posting date is used.
+German column headers are the default in SAP installations in Germany, Austria, and Switzerland. The headers are documented in SAP's field catalog: `Buchungsdatum` (posting date), `Belegdatum` (document date), `Menge` (quantity), `Mengeneinheit` (unit of measure), `Werk` (plant), `Bewegungsart` (movement type), `Material`, `Materialkurztext` (material short text). The parser's alias dict maps every one of those to its English canonical name, and also accepts the English equivalents straight up for English-configured systems.
 
-**Source consulted**: SAP Community forums on MB51 exports (community.sap.com), SAP field documentation for MKPF (material document header) and MSEG (material document item) tables.
+Movement types are 3-digit codes that classify a goods movement. The relevant ones for fuel consumption are 261 (goods issue to production order — by far the most common), 262 (reversal of 261), 201/202 (goods issue/return for cost centre), and 551/552 (scrapping). I include 281/282 as well because some clients post fuel against networks instead of production orders. Anything else is filtered out with a parse-error row so the analyst can see what was skipped — for example, type 101 is a goods receipt and means fuel arrived at the plant, not that it was burned.
 
-### Sample data rationale
+Units are stored as SAP's internal codes — `L` for litres, `GAL` for gallons, `M3` or `CBM` for cubic metres, `KG` for LPG, `TO` for tonnes. The parser normalises to litres for liquid fuel and m³ for gas, applying conversions for the non-SI inputs. Date formats are typically dd.mm.yyyy in German installations and yyyy-mm-dd or dd/mm/yyyy elsewhere; the parser tries seven formats in order.
 
-The sample file (`sap_fuel_sample.csv`) includes:
-- German column headers (realistic for a German-configured SAP system)
-- Three plants: BHM1, MCR1, LDN1 (mapped to Birmingham Factory, Manchester Warehouse, London HQ)
-- Two materials: D000100 (Diesel HVO) and G000200 (Erdgas = natural gas)
-- Movement type 261 throughout (goods issue for consumption)
-- One negative quantity row (row 8: -200L) — SAP sometimes posts fuel returns as negative goods issues rather than movement type 262. The parser takes absolute value and notes it.
-- One outlier row (row 11: 99,999L in one posting) — triggers the outlier flag
-- Cubic metres for natural gas (realistic — gas is metered in m³ in Europe)
+Plant codes are four-character alphanumeric strings unique within a client's SAP system. `BHM1` could be Birmingham Factory #1 or a name that means nothing without the client's lookup. The model has `PlantCodeMapping` for this and the SPA has a Settings page where an admin can edit the mapping.
 
-### What would break in real deployment
+Sources consulted: SAP Community threads on MB51 export behaviour (community.sap.com), the SAP field catalog documentation for MKPF (material document header) and MSEG (material document item), and a couple of public posts from sustainability consultants describing what their clients actually send them.
 
-1. **Plant code resolution**: The prototype seeds three plant codes. A real client would have dozens. An onboarding workflow to upload the plant-code mapping CSV is needed.
-2. **More movement types**: Production clients have material movements for dozens of non-fuel materials (packaging, raw materials, consumables). The movement type filter would need tuning per client based on which materials represent fuel.
-3. **Multiple SAP systems**: Large enterprises may have 3–10 SAP systems (by region, by acquisition). Each may have different plant codes, unit configurations, and column headers.
-4. **Decimal separator**: European SAP systems use comma as decimal separator (`1.234,56` = 1234.56). The parser handles this, but locale detection should be explicit rather than assumed.
-5. **Encoding**: SAP exports can be Latin-1, UTF-8, or UTF-8 with BOM depending on client configuration. The parser tries UTF-8-sig first, falls back to Latin-1.
+### Sample data — why it looks like that
 
----
+`samples/sap_fuel_sample.csv` is shaped like a German-configured export. It has German headers, three plant codes (BHM1, MCR1, LDN1) that map to seeded facilities, two materials (D000100 Diesel HVO B7 and G000200 Erdgas), mostly movement type 261. A few rows are intentional edge cases:
+
+- One row with a negative quantity (-200 L). SAP sometimes posts fuel returns as a negative 261 instead of a 262 reversal; the parser takes the absolute value and tags the record with `negative_quantity_taken_as_return` for analyst review.
+- One large quantity (99,999 L in a single posting) that trips the 3-sigma outlier flag.
+- One row with movement type 101 (goods receipt) that should not be ingested — surfaces in `parse_errors` instead of becoming a record.
+- One row with an unknown plant code (UNK9) — ingests but is flagged `missing_facility`.
+- One row with an unknown material (XYZ9999) — fails parsing and surfaces in `parse_errors`.
+- Natural gas rows in m³ to exercise the unit-normalisation path.
+
+### What would break on a real deployment
+
+- Plant-code resolution at scale. The prototype seeds three; a real client comes with dozens. We need an onboarding step that takes the client's plant-code → facility CSV.
+- Movement-type tuning. Production clients post movements for hundreds of materials (packaging, raw materials, consumables) and the filter would need to be tightened per client based on which materials are actually fuel.
+- Multiple SAP systems. Large enterprises often have several SAP instances by region or acquisition, with different plant codes and unit configurations. Per-system ingestion config would be needed.
+- Decimal separator. European systems use `1.234,56` and US ones use `1,234.56`; the parser handles both heuristically but explicit locale detection would be safer.
+- Encoding. SAP exports come out in UTF-8, UTF-8 with BOM, Latin-1, or cp1252 depending on configuration. The parser tries the encodings in order; in practice this is rarely a problem but not never.
 
 ## 2. Utility electricity
 
-### What I researched
+Utility portal CSV exports vary by provider but share a common skeleton.
 
-Utility portal CSV exports vary by provider but share common patterns. I looked at:
+I looked at ComEd in the US (their "View Account Usage Data" portal gives billing-period start/end, days, total kWh, on-peak/off-peak kWh, billing demand in kW, and rate code); EDF, E.ON, and British Gas in the UK for smart-meter exports (broadly similar but UK large commercial accounts get half-hourly interval data, which would need aggregation before ingestion); and the Green Button / ESPI XML standard, which is a US DOE initiative supported by some US utilities and almost no UK or European ones. CSV is the safest primary path.
 
-- **ComEd (US, Midwest)**: Their "View Account Usage Data" portal exports CSVs with fields: billing period start/end, days in period, total kWh, on-peak kWh, off-peak kWh, billing demand (kW), monthly peak demand, rate code. Billing periods are typically 28–32 days and do NOT align with calendar months.
-- **UK utilities (EDF, E.ON, British Gas)**: Smart meter data exports use similar structures. Key difference: UK uses half-hourly interval data for large commercial accounts, which would need aggregation to billing period.
-- **Green Button standard**: A US Department of Energy initiative (OpenESB/ESPI) that standardizes utility data in XML format. Supported by some US utilities but not universal; UK and European utilities generally do not support it.
+The shape of the data taught me one thing: billing periods are the unit of utility data, not calendar months. A bill dated February 15th may cover January 18th to February 16th — 30 days that span two months. ESG platforms that force this into "February" make an allocation assumption that is not in the source data. The model stores actual `activity_start` and `activity_end` so the downstream allocation choice is explicit.
 
-**Key insight from research**: Billing periods are the fundamental unit of utility data, not calendar months. A bill dated February 15 may cover Jan 18 → Feb 16 (30 days). ESG platforms that force this into "January" or "February" make an allocation assumption that is not in the source data.
+### Sample data — why it looks like that
 
-### Sample data rationale
+`samples/utility_electricity_sample.csv` uses ComEd-style column names. It includes:
 
-The sample (`utility_electricity_sample.csv`) uses ComEd-inspired column names and includes:
-- Three accounts/facilities across two meter groups per Birmingham Factory
-- Billing periods starting Jan 3 (not Jan 1) — realistic; utilities don't reset on the 1st
-- Variable billing period lengths (29, 29, 32 days) — real utility billing cycles drift
-- One zero-kWh row for London HQ in March — triggers the `zero_value` flag. This is realistic: a meter reading of zero often indicates a read failure or a vacant facility during refurbishment.
-- Peak and off-peak split — ComEd's TOU (time-of-use) rates expose this. The prototype stores it in `extra` but doesn't use it for emissions (total kWh is used).
-- Demand (kW) column — included because it appears in real exports; stored in `extra` for future market-based calculations.
+- Three facilities (Birmingham Factory, Manchester Warehouse, London HQ) with different account numbers.
+- Billing periods starting January 3rd, not January 1st — utility cycles do not reset on the first of the month.
+- Variable billing period lengths (29, 30, 31, 32 days) — real cycles drift.
+- Multiple meters at Birmingham Factory (MTR-BHM-001, 002, 003) — multi-meter sites are normal.
+- One zero-kWh row for London HQ in March. Real meter reads of zero usually mean either a read failure or a vacant facility (refurbishment, between tenants). The parser flags it `zero_value`.
+- Peak/off-peak kWh split — ComEd's TOU rates expose this; the prototype stores it in `extra` but uses the total kWh for the emissions calculation.
+- Demand (kW) and tariff code — included because real exports have them; kept in `extra` for future market-based work.
 
-### What would break in real deployment
+### What would break on a real deployment
 
-1. **Half-hourly interval data**: Large commercial accounts in the UK receive HH (half-hourly) interval data, not billing summary. This would require aggregation logic before creating EmissionRecords.
-2. **Estimated reads**: Utility CSVs often include an "Estimated" / "Actual" flag per reading. Estimated reads should be flagged for analyst review.
-3. **Multi-fuel utilities**: Some utility accounts include gas and electricity on the same bill. The current parser assumes electricity only.
-4. **Negative kWh (export)**: Facilities with solar panels or CHP may have negative kWh in some periods (net export to grid). This is legitimate and should not be flagged as zero_value.
-5. **Currency / tariff structure**: Demand charges, capacity charges, and network charges appear in bills but are not kWh consumption. Some exports mix these in the same file.
-
----
+- Half-hourly interval data. UK large-commercial accounts get HH data, not billing summaries. We would need an aggregation step before creating emission records.
+- Estimated reads. Real CSVs often include an Estimated/Actual flag per reading. Estimated reads should auto-flag.
+- Dual-fuel bills. Some accounts have gas and electricity on the same export. The current parser assumes electricity only.
+- Negative kWh from solar/CHP net export. The bug-fix here: zero kWh is a `zero_value` flag (probable error), but negative kWh is a separate `negative_export` flag (legitimate generation back to the grid).
+- Demand and capacity charges. Bills include kW demand, capacity charges, and network charges that are not kWh consumption. A naive parser could double-count if it grabbed the wrong column.
 
 ## 3. Corporate travel
 
-### What I researched
+Travel data comes out of Travel Management Companies (TMCs), and I looked at two specifically.
 
-Corporate travel management platforms (TMCs) provide booking data in various formats:
+Navan (formerly TripActions) is a large TMC with a reporting export that produces one CSV row per booking segment. Flight rows carry origin/destination airports, cabin class, and sometimes distance. Hotel rows carry check-in/check-out dates and a city. Ground rows carry mode (taxi, rail, car) and sometimes distance. The trip-type segmentation maps cleanly onto our three emission categories.
 
-- **Navan (formerly TripActions)**: Their reporting suite exports CSVs with one row per booking segment. Flights include origin/destination airports, cabin class, distance (sometimes provided, sometimes not). Hotels include check-in/check-out dates and city. Ground transport includes mode and distance.
-- **Concur Travel & Expense**: Similar structure, but Concur's expense data can include non-travel expenses. The travel module specifically provides trip segments. Concur supports API access via OAuth 2.0 + REST (v4 API), but the API is complex and requires enterprise credentials.
-- **IATA airport codes**: The standard for identifying airports (LHR, JFK, DXB). When platforms provide origin/destination as airport codes but not distance, Haversine can estimate great-circle distance. A public dataset of airport coordinates is available at github.com/datasets/airport-codes.
-- **Emission factors**: DEFRA 2023 GHG Conversion Factors for Company Reporting provides per-km emission factors by cabin class including radiative forcing uplift. Note: DEFRA's factor already includes an indirect radiative forcing multiplier (1.891) applied to the CO2 figure, accounting for non-CO2 climate effects of aviation.
+Concur Travel & Expense is more complex. Its travel module exports a similar shape, but the expense module mixes in non-travel categories (meals, supplies) that would need filtering. Concur also has a v4 OAuth REST API; it works but it needs enterprise credentials and is not a realistic ingestion path for a sustainability lead.
 
-### Sample data rationale
+For distances, the IATA airport-code standard is universal — three-letter codes (LHR, JFK, DXB, SIN) identify every commercial airport. When the TMC ships airport codes but no distance, Haversine on the airport coordinates gives an estimated great-circle distance. The public dataset at `github.com/datasets/airport-codes` has roughly 9,000 entries; the prototype bakes in about 36 of the major ones to keep the dependency footprint small.
 
-The sample (`travel_sample.csv`) includes:
-- One employee (EMP-0042) with a LHR→JFK flight, 3-night hotel, and two ground transport legs — a complete business trip
-- One business class flight (EMP-0117, LHR→DXB) to show different emission factor
-- One flight with distance provided (EMP-0089, LHR→SIN: 10,841 km) vs distance absent (other legs)
-- Multi-leg trip (EMP-0089: LHR→SIN→BOM→LHR) — each leg is a separate row
-- One flight with an unrecognized IATA code (EMP-0456: ZZZ) — triggers a parse failure to show error handling
-- Ground transport with missing distance — triggers flagging for analyst review
-- Hotel records with check-in/check-out dates
+Emission factors come from DEFRA 2023 GHG Conversion Factors for Company Reporting. DEFRA's flight factors already include a 1.891x radiative-forcing uplift to account for the non-CO2 climate effects of aviation (contrails, NOx, water vapour at altitude), so I do not apply an additional uplift on top.
 
-### What would break in real deployment
+### Sample data — why it looks like that
 
-1. **Haversine underestimates**: Great-circle distance is 5–10% shorter than actual routed flight distance. DEFRA recommends not applying an additional uplift when using their radiative-forcing-inclusive factors, but this should be documented per client.
-2. **Airport code gaps**: The prototype includes 20 major airports. A real deployment needs the full IATA dataset (~9,000 airports). Available as a public CSV; would be loaded into a database table.
-3. **Hotel emission factors by country**: The global average (20.8 kgCO2e/room-night) masks significant variation. A hotel in India with coal-heavy grid has higher emissions than one in Norway with hydro power. Production would use country-level hotel emission factors.
-4. **Personal vs business travel**: Corporate travel platforms often capture personal travel booked on the corporate card. Without a `business_purpose` field and filtering, personal travel would inflate Scope 3 Category 6.
-5. **Rail distance**: Navan/Concur sometimes provide ground transport distances, sometimes not. Train distances should use routing distance, not straight-line.
-6. **Currency normalization**: Travel cost data uses different currencies. Not used for emissions, but useful for cost-per-tonne analysis.
+`samples/travel_sample.csv` is shaped like a Navan export.
+
+- One employee (EMP-0042) with a complete LHR ↔ JFK round trip — outbound flight, 3-night hotel in New York, two taxi legs, return flight. Touches all three trip_type branches in one trip.
+- A business-class flight (EMP-0117 LHR → DXB) to exercise the business-class emission factor, which is roughly 3x economy.
+- A multi-leg trip (EMP-0089 LHR → SIN → BOM → LHR) with one segment that explicitly carries `distance_km` (10,841 km for LHR → SIN) and the others left blank so Haversine fills them in. Demonstrates both paths.
+- A premium-economy segment to hit that factor.
+- Rail (Manchester, 212 km, two ways) to exercise the rail factor.
+- A flight to an unrecognised IATA code (`ZZZ`) — fails parsing and surfaces in `parse_errors` rather than computing a garbage number.
+- A ground-transport row with no distance and no airport pair — surfaces in `parse_errors` because there is no defensible way to compute emissions.
+
+### What would break on a real deployment
+
+- Haversine under-counts by 5-10% relative to actual routed flight distance. DEFRA's factor compensates partially via the radiative-forcing uplift. I would still want to document the limitation per client.
+- The airport-code dictionary is incomplete. A real deployment would load the full ~9,000-entry IATA dataset into a database table.
+- Hotel emission factors are a global average (20.8 kgCO2e/room-night). The variance is large — a hotel in India on a coal-heavy grid emits much more than one in Norway on hydro. Country-level factors are a known v2 item.
+- Personal travel mixed in. Corporate travel platforms capture personal trips booked on the corporate card. Without a `business_purpose` flag and filtering, those inflate Scope 3 Category 6.
+- Rail distances should be routed distances, not straight lines, but most TMCs do not provide them and Haversine is a poor substitute over land.
+- Currency normalisation is not implemented. Travel cost data uses many currencies. Not needed for emissions math, but useful for downstream cost-per-tonne analysis.

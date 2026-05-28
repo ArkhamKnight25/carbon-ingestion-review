@@ -1,4 +1,41 @@
-# DEPLOY.md — Railway deployment
+# DEPLOY.md — deployment
+
+## Render (recommended, via Blueprint)
+
+`render.yaml` at repo root defines all three services. One-click apply:
+
+1. Sign in at https://render.com → **New** → **Blueprint**
+2. Connect this repo
+3. Render reads `render.yaml`, provisions:
+   - `carbontrace-db` — Postgres
+   - `carbontrace-backend` — Django web service
+   - `carbontrace-frontend` — static site (Vite build)
+4. Prompts for env vars marked `sync: false`:
+   - `SEED_ADMIN_PASSWORD` (backend) — strong password for `admin` user
+   - `CORS_ALLOWED_ORIGINS` (backend) — leave blank initially, set after frontend deploys
+   - `VITE_API_BASE` (frontend) — leave blank initially, set after backend deploys
+5. **Apply** — Render builds both services (~5 min)
+6. After first deploy:
+   - Copy backend URL (e.g. `https://carbontrace-backend.onrender.com`)
+   - Set `VITE_API_BASE` on frontend env → triggers frontend rebuild
+   - Copy frontend URL (e.g. `https://carbontrace-frontend.onrender.com`)
+   - Set `CORS_ALLOWED_ORIGINS` on backend env → triggers backend redeploy
+
+### Notes
+
+- Free Postgres tier on Render is 90 days; after that data is paused. If unavailable at signup, swap `DATABASE_URL` to a free Neon Postgres (`neon.tech`) and remove the `databases:` block from `render.yaml`.
+- Free web services sleep after 15 min idle and cold-start in ~30s.
+
+### Smoke test
+
+- `GET https://<backend>.onrender.com/api/health/` → `{"status":"ok"}`
+- Login at frontend with `admin` / `<SEED_ADMIN_PASSWORD>`
+- Upload three sample CSVs from `/samples/`
+- Dashboard shows non-zero scope 1/2/3
+
+---
+
+## Railway (alternative)
 
 Two services on Railway: **Django backend** (web service) + **Postgres** (database plugin). Frontend served separately as a static build (Railway, Vercel, or Netlify).
 

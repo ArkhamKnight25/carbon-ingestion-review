@@ -28,7 +28,7 @@ python manage.py runserver
 ```
 
 API: http://localhost:8000  
-Admin: http://localhost:8000/admin (admin/admin123)
+Admin: http://localhost:8000/admin
 
 ### Frontend
 
@@ -39,7 +39,7 @@ copy .env.example .env
 npm run dev
 ```
 
-UI: http://localhost:5173 (login: admin/admin123 or analyst/analyst123)
+UI: http://localhost:5173
 
 ## Sample data
 
@@ -62,9 +62,9 @@ See [DEPLOY.md](DEPLOY.md). Railway one-click: backend service + Postgres plugin
 - [TRADEOFFS.md](TRADEOFFS.md) — three things deliberately not built
 - [SOURCES.md](SOURCES.md) — research per source + what breaks in production
 
-## Credentials (seeded)
+## Credentials
 
-- `admin` / `admin123` — superuser, full admin access
-- `analyst` / `analyst123` — analyst, can review/approve/lock
-
-Change in production via `SEED_ADMIN_PASSWORD` env var.
+Two users are created at seed time: a superuser (`admin`) and a reviewer (`analyst`).
+Production deployments must set `SEED_ADMIN_PASSWORD` in the environment; the seeded
+credentials for the live deployment are shared separately with reviewers in the
+submission email.

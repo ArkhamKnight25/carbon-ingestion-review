@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom'
 import Login from './pages/Login.jsx'
 import Dashboard from './pages/Dashboard.jsx'
@@ -5,7 +6,20 @@ import Upload from './pages/Upload.jsx'
 import Batches from './pages/Batches.jsx'
 import Review from './pages/Review.jsx'
 import Settings from './pages/Settings.jsx'
-import { logout } from './api.js'
+import { api, logout } from './api.js'
+
+function useKeepAlive() {
+  useEffect(() => {
+    const ping = () => {
+      if (localStorage.getItem('token')) {
+        api.health().catch(() => {})
+      }
+    }
+    ping()
+    const id = setInterval(ping, 10 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [])
+}
 
 function RequireAuth({ children }) {
   const t = localStorage.getItem('token')
@@ -16,19 +30,30 @@ function RequireAuth({ children }) {
 function NavBar() {
   const loc = useLocation()
   const u = localStorage.getItem('username')
+  const [open, setOpen] = useState(false)
   if (loc.pathname === '/login') return null
+  const links = [
+    ['/', 'Dashboard', loc.pathname === '/'],
+    ['/upload', 'Upload', loc.pathname === '/upload'],
+    ['/batches', 'Batches', loc.pathname.startsWith('/batches')],
+    ['/review', 'Review', loc.pathname.startsWith('/review')],
+    ['/settings', 'Settings', loc.pathname.startsWith('/settings')],
+  ]
   return (
     <header className="nav">
       <div className="brand">
         <span className="brand-mark">CT</span>
         <span>CarbonTrace</span>
       </div>
-      <nav>
-        <Link to="/" className={loc.pathname === '/' ? 'active' : ''}>Dashboard</Link>
-        <Link to="/upload" className={loc.pathname === '/upload' ? 'active' : ''}>Upload</Link>
-        <Link to="/batches" className={loc.pathname.startsWith('/batches') ? 'active' : ''}>Batches</Link>
-        <Link to="/review" className={loc.pathname.startsWith('/review') ? 'active' : ''}>Review</Link>
-        <Link to="/settings" className={loc.pathname.startsWith('/settings') ? 'active' : ''}>Settings</Link>
+      <button
+        className="nav-toggle"
+        aria-label="Toggle menu"
+        onClick={() => setOpen(o => !o)}
+      >{open ? '✕' : '☰'}</button>
+      <nav className={open ? 'open' : ''}>
+        {links.map(([to, label, active]) => (
+          <Link key={to} to={to} className={active ? 'active' : ''} onClick={() => setOpen(false)}>{label}</Link>
+        ))}
       </nav>
       <div className="user">
         <span>{u || 'user'}</span>
@@ -39,6 +64,7 @@ function NavBar() {
 }
 
 export default function App() {
+  useKeepAlive()
   return (
     <div className="app">
       <NavBar />

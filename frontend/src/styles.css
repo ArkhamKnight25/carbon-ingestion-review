@@ -326,3 +326,96 @@ h3 {
   display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px;
 }
 .modal-actions .link { padding: 9px 16px; }
+
+.nav-toggle {
+  display: none;
+  background: transparent; color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  width: 36px; height: 36px;
+  padding: 0; font-size: 18px; box-shadow: none;
+}
+
+.table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* Tablet */
+@media (max-width: 960px) {
+  .main { padding: 24px 20px 48px; }
+  .nav { padding: 12px 20px; gap: 16px; }
+  .cards { grid-template-columns: 1fr 1fr; }
+  .bar-row { grid-template-columns: 160px 1fr 80px; gap: 10px; }
+  .expand-grid { grid-template-columns: 1fr; gap: 16px; }
+  .form-inline { grid-template-columns: 1fr; max-width: 100%; }
+  .form-inline button { width: 100%; }
+}
+
+/* Mobile */
+@media (max-width: 640px) {
+  body { font-size: 13px; }
+  .main { padding: 16px 14px 40px; }
+  .page > h2 { font-size: 20px; }
+
+  .nav {
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    gap: 10px;
+    position: sticky;
+  }
+  .nav .brand { flex: 1; }
+  .brand-mark { width: 26px; height: 26px; font-size: 12px; }
+  .nav-toggle { display: inline-flex; align-items: center; justify-content: center; order: 2; }
+  .nav nav {
+    display: none;
+    width: 100%;
+    flex-direction: column;
+    gap: 0;
+    order: 4;
+    border-top: 1px solid var(--border);
+    margin-top: 6px; padding-top: 8px;
+  }
+  .nav nav.open { display: flex; }
+  .nav nav a { padding: 10px 12px; width: 100%; border-radius: 4px; }
+  .nav .user { order: 3; font-size: 12px; gap: 8px; }
+
+  .cards { grid-template-columns: 1fr; gap: 12px; }
+  .card { padding: 16px; }
+  .card-value { font-size: 28px; }
+
+  .bar-row { grid-template-columns: 1fr; gap: 6px; }
+  .bar-label { font-size: 12px; }
+  .bar-track { height: 20px; }
+  .bar-val { text-align: left; font-size: 12px; }
+
+  .table {
+    font-size: 12px;
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+  .table th, .table td { padding: 8px 10px; }
+  .table th { font-size: 10px; }
+  .expand td { white-space: normal; }
+
+  .filters {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .login-card {
+    width: 100%;
+    padding: 24px 20px;
+  }
+
+  .form-card, .result-card { padding: 18px; }
+
+  .modal {
+    width: calc(100vw - 24px);
+    padding: 20px;
+  }
+  .modal h3 { font-size: 15px; }
+  .modal-actions { flex-direction: column-reverse; }
+  .modal-actions button { width: 100%; }
+
+  pre { font-size: 10px; padding: 10px; max-height: 240px; }
+}

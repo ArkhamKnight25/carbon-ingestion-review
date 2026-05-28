@@ -4,8 +4,8 @@ import { api } from '../api.js'
 
 export default function Login() {
   const nav = useNavigate()
-  const [username, setUsername] = useState('admin')
-  const [password, setPassword] = useState('admin123')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -44,7 +44,7 @@ export default function Login() {
         <button disabled={loading} type="submit">{loading ? 'Signing in…' : 'Sign in'}</button>
 
         <div className="hint">
-          Demo: <code>admin</code> / <code>admin123</code> or <code>analyst</code> / <code>analyst123</code>
+          Use the credentials provided in the submission email.
         </div>
       </form>
     </div>

@@ -51,6 +51,26 @@ Upload each CSV in `/samples/` to its matching source type in **Upload → CSV f
 
 Each file is designed to exercise both happy-path and edge cases (negative quantities, missing plant codes, unknown materials, zero-kWh meters, unrecognized IATA codes, missing distances, outliers).
 
+## Extensibility — what admin can change without a developer
+
+Admin (`/admin/` Django panel) can already CRUD: `Tenant`, `Facility`, `PlantCodeMapping`,
+`EmissionFactor`, users, and any `EmissionRecord` row. Plant code mappings also have a
+custom Settings page in the SPA so non-technical operators don't need Django admin.
+
+What is deliberately NOT admin-editable:
+
+- **Header alias maps** for each parser (e.g. `Buchungsdatum` → `posting_date`) live as
+  Python dicts in `backend/ingestion/parsers.py`. They are the output of source-format
+  research and are version-controlled / testable. A production extension would introduce
+  a `HeaderAlias(source_type, alias, canonical_field, tenant)` table merged at parse
+  time so ops can add new client header variants live; deferred for the prototype
+  because hardcoded research output defends more cleanly than a half-built override
+  surface.
+- **Material → activity-key map** and **cabin → factor map** in the same file, for the
+  same reason.
+- **Source type enum** (`SAP_FUEL`, `UTILITY_ELEC`, `TRAVEL`). Adding a new source type
+  (e.g. waste, refrigerants) requires a new parser function — not a config change.
+
 ## Deployment
 
 See [DEPLOY.md](DEPLOY.md). Railway one-click: backend service + Postgres plugin + frontend static site.

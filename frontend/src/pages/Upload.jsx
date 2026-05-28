@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../api.js'
 
 const SOURCES = [
-  { v: 'SAP_FUEL', label: 'SAP fuel movements (MB51 CSV)', sample: '/samples/sap_fuel_sample.csv' },
-  { v: 'UTILITY_ELEC', label: 'Utility electricity (portal CSV)', sample: '/samples/utility_electricity_sample.csv' },
-  { v: 'TRAVEL', label: 'Corporate travel (Navan-style CSV)', sample: '/samples/travel_sample.csv' },
+  { v: 'SAP_FUEL', label: 'SAP fuel movements (MB51 CSV)' },
+  { v: 'UTILITY_ELEC', label: 'Utility electricity (portal CSV)' },
+  { v: 'TRAVEL', label: 'Corporate travel (Navan-style CSV)' },
 ]
 
 export default function Upload() {
@@ -72,22 +72,10 @@ export default function Upload() {
         </div>
       )}
 
-      <div className="samples-card">
-        <h3>Sample CSVs</h3>
-        <p className="muted" style={{ margin: '0 0 12px' }}>
-          Download a realistic sample for each source type. Each file exercises happy-path
-          and edge cases (negative quantities, missing plant codes, unknown materials,
-          zero-kWh meters, unrecognized IATA codes, missing distances, outliers).
-        </p>
-        <ul className="samples-list">
-          {SOURCES.map(s => (
-            <li key={s.v}>
-              <span className="tag">{s.v}</span>
-              <a href={s.sample} download>{s.sample.split('/').pop()}</a>
-              <button className="link" type="button" onClick={() => setSource(s.v)}>Use this</button>
-            </li>
-          ))}
-        </ul>
+      <div className="hint" style={{ marginTop: 24 }}>
+        Realistic sample CSVs live in <code>/samples/</code> at the repo root:
+        <code>sap_fuel_sample.csv</code>, <code>utility_electricity_sample.csv</code>,
+        <code>travel_sample.csv</code>.
       </div>
     </div>
   )
